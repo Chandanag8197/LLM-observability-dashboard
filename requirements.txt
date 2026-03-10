@@ -2,3 +2,4 @@ requests
 python-json-logger==2.0.7
 python-dotenv==1.0.1          # ← new
 ollama==0.4.7                 # ← official Python client for Ollama
+rich==13.7.1               # ← new: beautiful console printing

@@ -8,6 +8,11 @@ from datetime import datetime
 from pythonjsonlogger import jsonlogger
 from dotenv import load_dotenv
 import ollama
+import sys
+from pathlib import Path
+
+# Force-add project root to Python's search path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # ── Load environment variables ──────────────────────────────────────────────
 load_dotenv()                       # reads .env file
@@ -39,74 +44,120 @@ logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
 
-def log_llm_call(prompt: str, model: str = None):
-    """
-    Now calls real Ollama model instead of mock.
-    """
+
+
+def log_llm_call(
+    prompt: str,
+    model: str = None,
+    system_prompt: str = None,
+    temperature: float = 0.7,
+    max_tokens: int = 512,
+    use_chain_of_thought: bool = False
+):
     model = model or DEFAULT_MODEL
 
     start_time = time.perf_counter()
 
+    messages = []
+
+    # Add system prompt if provided
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+
+    # Optional: add CoT instruction
+    if use_chain_of_thought:
+        cot_instruction = (
+            "\n\nThink step by step before giving your final answer. "
+            "Show your reasoning clearly, then put your final conclusion in this format:\n"
+            "FINAL ANSWER: [your short answer here]"
+        )
+        prompt += cot_instruction
+
+    messages.append({"role": "user", "content": prompt})
+
     try:
-        # ── Real LLM call via Ollama Python client ──────────────────────────
         response_obj = ollama.chat(
             model=model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             options={
-                "temperature": 0.7,
-                "num_predict": 512,           # max tokens to generate
+                "temperature": temperature,
+                "num_predict": max_tokens,
             }
         )
 
         response_text = response_obj["message"]["content"]
-        # Ollama returns token counts directly (very accurate)
         prompt_tokens = response_obj.get("prompt_eval_count", 0)
         completion_tokens = response_obj.get("eval_count", 0)
 
     except Exception as e:
         logger.error(f"Ollama call failed: {str(e)}")
-        response_text = f"ERROR: Could not reach Ollama - {str(e)}"
+        response_text = f"ERROR: {str(e)}"
         prompt_tokens = completion_tokens = 0
 
     latency_sec = time.perf_counter() - start_time
 
     metrics = {
         "model": model,
-        "prompt": prompt[:300],                    # still truncate long ones
-        "response": response_text[:500],
+        "system_prompt_used": bool(system_prompt),
+        "chain_of_thought": use_chain_of_thought,
+        "temperature": temperature,
+        "prompt": prompt[:400],
+        "response": response_text[:800],
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": prompt_tokens + completion_tokens,
         "latency_seconds": round(latency_sec, 4),
-        "hallucination_score": 0.00,               # placeholder
-        "cost_usd": 0.000,                         # local = free
-        "quality_score": 0.00                      # placeholder
+        "hallucination_score": 0.00,  # placeholder
+        "cost_usd": 0.000,
+        "quality_score": 0.00
     }
 
-    # ── Log structured event ────────────────────────────────────────────────
     extra = {"llm_metrics": json.dumps(metrics)}
-    logger.info(f"LLM call completed - model={model}", extra=extra)
+    logger.info(f"LLM call - model={model} | CoT={use_chain_of_thought}", extra=extra)
 
     return response_text, metrics
 
 
-# ── Quick test ──────────────────────────────────────────────────────────────
+# ── Improved test block ─────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import os
+    from rich.console import Console
+    from src.prompts import SYSTEM_QA_ENGINEER, SYSTEM_TEST_QUESTION_GENERATOR
+
+    console = Console()
     os.makedirs("logs", exist_ok=True)
 
-    prompts = [
-        "What is the capital of France?",
-        "Explain what is MLOps in one sentence like I'm a QA engineer with 2 years experience",
-        "Write a funny one-liner joke about working from home in Bengaluru during monsoon"
+    examples = [
+        {
+            "name": "Simple QA (no system)",
+            "prompt": "What is pytest fixture?",
+            "system": None,
+            "cot": False
+        },
+        {
+            "name": "With QA Engineer personality",
+            "prompt": "What is pytest fixture?",
+            "system": SYSTEM_QA_ENGINEER,
+            "cot": False
+        },
+        {
+            "name": "Generate test questions + CoT",
+            "prompt": "Create test questions to check if an LLM understands date and time parsing correctly.",
+            "system": SYSTEM_TEST_QUESTION_GENERATOR,
+            "cot": True
+        }
     ]
 
-    for p in prompts:
-        print(f"\nPrompt: {p}")
-        try:
-            resp, met = log_llm_call(p)
-            print(f"→ Model: {met['model']}")
-            print(f"→ Response (first 120 chars): {resp[:120]}...")
-            print(f"→ Latency: {met['latency_seconds']}s | Tokens: {met['total_tokens']}")
-        except Exception as e:
-            print(f"Error during call: {e}")
+    for ex in examples:
+        console.rule(f"[bold green]{ex['name']}[/bold green]")
+        console.print(f"[bold]Prompt:[/bold] {ex['prompt']}\n")
+
+        resp, met = log_llm_call(
+            prompt=ex["prompt"],
+            system_prompt=ex["system"],
+            use_chain_of_thought=ex["cot"],
+            temperature=0.65
+        )
+
+        console.print("[bold cyan]Response:[/bold cyan]")
+        console.print(resp)
+        console.print(f"\n[dim]Latency: {met['latency_seconds']:.3f}s | Tokens: {met['total_tokens']}[/dim]\n")
