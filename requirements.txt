@@ -4,3 +4,5 @@ python-dotenv==1.0.1          # ← new
 ollama==0.4.7                 # ← official Python client for Ollama
 rich==13.7.1               # ← new: beautiful console printing
 pydantic-settings
+pytest==8.3.3
+pytest-mock==3.14.0
