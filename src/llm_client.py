@@ -1,31 +1,61 @@
 from typing import Optional, Tuple, Dict
 import uuid
-from src.logger import log_llm_call          # ← uses your existing function!
+from src.config import settings
+from src.exceptions import InvalidModelError, LLMCallFailedError
+from src.llm_backends.ollama_backend import OllamaBackend
+from src.llm_backends.mock_backend import MockBackend
 from src.prompts import SYSTEM_QA_ENGINEER, SYSTEM_TEST_QUESTION_GENERATOR
+# from src.llm_backends.base import LLMBackend   # uncomment later when needed
 
 class LLMClient:
-    """Your reusable LLM 'test framework' class – clean, traceable, production-ready!"""
-    
-    def __init__(self, model: Optional[str] = None, temperature: float = 0.7):
-        self.model = model or "llama3.2:3b"
-        self.temperature = temperature
-        self.session_id = str(uuid.uuid4())[:8]   # unique ID for Splunk tracing later!
-        
-        print(f"✅ LLMClient ready! | Model: {self.model} | Session ID: {self.session_id}")
+    BACKEND_REGISTRY = {
+        "ollama": OllamaBackend,
+        "mock": MockBackend,
+        # "openai": OpenAIBackend,     # future
+        # "bedrock": BedrockBackend,
+    }
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None,
-                 use_chain_of_thought: bool = False, max_tokens: int = 512) -> Tuple[str, Dict]:
-        """Core method – calls your logger automatically and adds session tracking."""
-        response, metrics = log_llm_call(
-            prompt=prompt,
-            model=self.model,
-            system_prompt=system_prompt,
-            temperature=self.temperature,
-            max_tokens=max_tokens,
-            use_chain_of_thought=use_chain_of_thought
-        )
-        metrics["session_id"] = self.session_id   # extra observability for future Splunk
-        return response, metrics
+    def __init__(
+        self,
+        provider: str = "ollama",
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+    ):
+        if provider not in self.BACKEND_REGISTRY:
+            raise InvalidModelError(f"Unknown provider: {provider}")
+
+        backend_class = self.BACKEND_REGISTRY[provider]
+        self.backend = backend_class(model=model or settings.default_model)
+
+        self.temperature = temperature if temperature is not None else settings.default_temperature
+        self.session_id = str(uuid.uuid4())[:8]
+        self.provider = provider
+
+        print(f"LLMClient ready | Provider: {self.provider} | Model: {self.backend.model}")
+
+    def generate(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        use_chain_of_thought: bool = False,
+        max_tokens: int = 512,
+    ) -> Tuple[str, Dict]:
+        try:
+            response, metrics = self.backend.generate(
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=self.temperature,
+                max_tokens=max_tokens,
+                use_chain_of_thought=use_chain_of_thought,
+            )
+            metrics["session_id"] = self.session_id
+            metrics["provider"] = self.provider   # ensure it's there
+            return response, metrics
+
+        except Exception as e:
+            raise LLMCallFailedError(
+                f"Backend {self.provider} failed", original_exception=e
+            )
 
     def explain_as_qa_engineer(self, concept: str) -> Tuple[str, Dict]:
         """Uses your senior QA personality – perfect for documentation or training."""

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import ollama
 import sys
 from pathlib import Path
+from src.config import settings  # clean config import
 
 # Force-add project root to Python's search path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -20,7 +21,7 @@ DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "llama3.2:3b")
 
 # ── Configure structured JSON logging ───────────────────────────────────────
 logger = logging.getLogger("llm_observability")
-logger.setLevel(logging.INFO)
+logger.setLevel(settings.log_level_int)  # from config.py, supports env var override
 
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter(
@@ -28,9 +29,9 @@ console_handler.setFormatter(logging.Formatter(
 ))
 
 file_handler = RotatingFileHandler(
-    "logs/llm-calls.jsonl",
-    maxBytes=10*1024*1024,
-    backupCount=5
+    settings.metrics_file,
+    maxBytes=settings.metrics_max_bytes,
+    backupCount=settings.metrics_backup_count
 )
 
 json_formatter = jsonlogger.JsonFormatter(
@@ -54,7 +55,7 @@ def log_llm_call(
     max_tokens: int = 512,
     use_chain_of_thought: bool = False
 ):
-    model = model or DEFAULT_MODEL
+    model = model or settings.default_model
 
     start_time = time.perf_counter()
 
