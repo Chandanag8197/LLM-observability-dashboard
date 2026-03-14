@@ -49,7 +49,12 @@ class LLMClient:
                 use_chain_of_thought=use_chain_of_thought,
             )
             metrics["session_id"] = self.session_id
-            metrics["provider"] = self.provider   # ensure it's there
+            metrics["provider"] = self.provider
+
+            # ── NEW: automatically log full metrics ────────────────────────
+            from src.logger import log_llm_metrics          # ← add this import
+            log_llm_metrics(metrics)                        # ← add this line
+
             return response, metrics
 
         except Exception as e:

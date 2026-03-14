@@ -1,6 +1,9 @@
 from rich.console import Console
 from src.llm_client import LLMClient   # ← clean import thanks to __init__.py
-from src.config import settings     # ← clean config import
+from src.config import settings
+import os
+
+os.makedirs("logs", exist_ok=True)     # ← clean config import
 
 console = Console()
 

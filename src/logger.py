@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+from typing import Dict, Any
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from pythonjsonlogger import jsonlogger
@@ -117,6 +118,21 @@ def log_llm_call(
     logger.info(f"LLM call - model={model} | CoT={use_chain_of_thought}", extra=extra)
 
     return response_text, metrics
+
+
+# src/logger.py  (add near the bottom, after the existing log_llm_call)
+
+def log_llm_metrics(metrics: Dict[str, Any]) -> None:
+    """Structured log of a complete LLM call with full metrics."""
+    short_msg = (
+        f"LLM call | provider={metrics.get('provider')} | "
+        f"model={metrics.get('model')} | "
+        f"latency={metrics.get('latency_seconds'):.3f}s | "
+        f"tokens={metrics.get('total_tokens')}"
+    )
+    
+    extra = {"llm_metrics": json.dumps(metrics, ensure_ascii=False)}
+    logger.info(short_msg, extra=extra)
 
 
 # ── Improved test block ─────────────────────────────────────────────────────
